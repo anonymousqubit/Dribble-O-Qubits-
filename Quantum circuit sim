@@ -1,0 +1,85 @@
+"""
+Quantum Circuit Simulator
+MIT License
+Copyright (c) 2025 Jeffrey Allen
+"""
+
+from qiskit import QuantumCircuit, Aer, execute, transpile
+from qiskit.providers.aer.noise import NoiseModel, depolarizing_error, amplitude_damping_error, thermal_relaxation_error
+from qiskit.visualization import plot_histogram, timeline_drawer, plot_state_qsphere
+from qiskit.quantum_info import Statevector
+from qiskit.circuit.library import GroverOperator, EfficientSU2
+from qiskit.algorithms import VQE
+from qiskit.opflow import Z, I
+from scipy.optimize import minimize
+import matplotlib.pyplot as plt
+import json
+import numpy as np
+
+# Step 1: Initialize Logical Qubits
+def initialize_logical_qubits(total_qubits, data_ratio=0.5):
+    """Initialize logical qubits dynamically based on the total number of qubits."""
+    data_count = int(total_qubits * data_ratio)
+    stabilizer_count = total_qubits - data_count
+    qc = QuantumCircuit(total_qubits)
+    data_qubits = list(range(data_count))
+    stabilizer_qubits = list(range(data_count, total_qubits))
+
+    for qubit in data_qubits:
+        qc.h(qubit)  # Initialize data qubits
+    for qubit in stabilizer_qubits:
+        qc.h(qubit)  # Prepare stabilizer qubits
+
+    return qc, data_qubits, stabilizer_qubits
+
+# Step 2: Add Logical Operations
+def add_logical_operations(qc, data_qubits):
+    """Apply logical operations to the data qubits."""
+    for qubit in data_qubits:
+        qc.x(qubit)  # Logical X gate
+        qc.z(qubit)  # Logical Z gate
+    return qc
+
+# Step 3: Fault-Tolerant T-Gate
+def add_fault_tolerant_t_gate(qc, data_qubits):
+    """Add a fault-tolerant T-gate implementation to the logical qubits."""
+    for qubit in data_qubits:
+        qc.h(qubit)
+        qc.t(qubit)
+        qc.h(qubit)
+    return qc
+
+# Step 4: Noise Model
+def create_noise_model(threshold=0.01):
+    """Create a noise model with customizable thresholds."""
+    noise_model = NoiseModel()
+    depol_error = depolarizing_error(threshold, 2)
+    amp_damp_error = amplitude_damping_error(threshold)
+    thermal_error = thermal_relaxation_error(t1=60, t2=80, time=10)
+    noise_model.add_all_qubit_quantum_error(amp_damp_error, ['u1', 'u2', 'u3'])
+    noise_model.add_all_qubit_quantum_error(depol_error, ['cx'])
+    noise_model.add_all_qubit_quantum_error(thermal_error, ['u1', 'u2', 'u3', 'cx'])
+    return noise_model
+
+# Main Execution Pipeline
+def main():
+    n_qubits = 20  # Total qubits
+    thresholds = [0.005, 0.01, 0.02, 0.05]  # Noise thresholds
+    qc, data_qubits, stabilizer_qubits = initialize_logical_qubits(n_qubits)
+
+    # Add logical operations and fault-tolerant gates
+    qc = add_logical_operations(qc, data_qubits)
+    qc = add_fault_tolerant_t_gate(qc, data_qubits)
+
+    # Create and test with multiple noise models
+    noise_models = [create_noise_model(threshold) for threshold in thresholds]
+    simulator = Aer.get_backend('qasm_simulator')
+
+    for i, noise_model in enumerate(noise_models):
+        print(f"Running Simulation with Noise Threshold {thresholds[i]}...")
+        job = execute(qc, simulator, noise_model=noise_model, shots=1024)
+        result = job.result()
+        print(f"Simulation results for threshold {thresholds[i]}: {result.get_counts()}")
+
+if __name__ == "__main__":
+    main()
